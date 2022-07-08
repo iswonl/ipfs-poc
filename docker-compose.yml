@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  ipfs:
+    build: ./kubo/
+    ports:
+      - "8080:8080"
+      - "5001:5001"
+  
+  backend:
+    build: ./backend/
+    ports:
+      - "8000:8000"
+    environment:
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
+      - IPFS_HOST=ipfs
+      - IPFS_PORT=5001
+      - RUST_BACKTRACE=1
+  
+  frontend:
+    build: ./frontend/
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_ENDPOINT=http://127.0.0.1:8000
