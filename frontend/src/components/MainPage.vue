@@ -1,12 +1,13 @@
 <template>
   <div>
+    <label>Enter your message to sign and save in IPFS: </label><br />
     <input type="text" v-model="message" />
     <button @click="signMessage">Sign message</button>
     <div v-if="hash.length">Hash: {{ hash }}</div>
     <div v-if="hash.length">
       <input type="text" v-model="link" disabled />
       <div>
-        <iframe v-bind:src="link" height="100%" width="100%"></iframe>
+        <iframe v-bind:src="link" width="100%"></iframe>
       </div>
     </div>
   </div>
@@ -55,7 +56,7 @@ input {
 }
 iframe {
   width: 100%;
-  height: 100%;
+  height: 512px;
 }
 button {
   float: right;
