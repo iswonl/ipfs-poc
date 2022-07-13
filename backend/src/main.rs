@@ -48,12 +48,19 @@ pub struct StoreDataResponse {
     hash: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct TmpData {
+    msg: String,
+    signature: String,
+    public_key: String,
+}
+
 fn val_sign(message: &str) -> (String, String) {
     let (p, s) = VALIDATOR_KEYPAIR.lock().unwrap().clone();
     let b = base64::decode(s.as_str()).unwrap();
     let sk =  pqcrypto_dilithium::dilithium2::SecretKey::from_bytes(&b).unwrap();
     let signature = base64::encode(sign(message.as_bytes(), &sk).as_bytes());
-    (p, signature)
+    (signature, p)
 }
 
 #[get("/")]
@@ -62,7 +69,7 @@ async fn hello() -> impl Responder {
 }
 
 #[post("/sign")]
-async fn signmsg(sign_data: web::Json<SignData>) -> Result<HttpResponse, actix_web::Error> {
+async fn signmsg(client: web::Data<IpfsClient>, sign_data: web::Json<SignData>) -> Result<HttpResponse, actix_web::Error> {
 
     if sign_data.msg.len() == 0 {
         return Err(actix_web::error::ErrorBadRequest("missing msg"));
@@ -70,23 +77,26 @@ async fn signmsg(sign_data: web::Json<SignData>) -> Result<HttpResponse, actix_w
 
     let _signature = val_sign(sign_data.msg.as_str());
 
-    let client = IpfsClient::from_host_and_port(Scheme::HTTP, IPFS_HOST.as_str(), *IPFS_PORT).unwrap();
+    let tmp = TmpData{
+        msg: sign_data.msg.clone(),
+        signature: _signature.0,
+        public_key: _signature.1,
+    };
     
     let mut form = Form::default();
-    form.add_reader_file("/tmp/msg", Cursor::new(sign_data.msg.clone()), "data/msg");
-    form.add_reader_file("/tmp/signature", Cursor::new(_signature.1.clone()), "data/signature");
-    form.add_reader_file("/tmp/public_key", Cursor::new(_signature.0.clone()), "data/public_key");
+    form.add_reader_file("tmp", Cursor::new(serde_json::to_string(&tmp).unwrap()), "data");
+    let add = ipfs_api::request::Add::builder().wrap_with_directory(true).build();
 
-    let hash = match client.add_with_form(form, ipfs_api::request::Add::builder().wrap_with_directory(true).build()).await {
+    let hash = match client.add_with_form(form, add).await {
         Ok(res) => res.iter().map(|r| r.hash.clone()).collect::<Vec<String>>(),
         Err(e) => { eprintln!("error adding file: {}", e); vec!["".to_string()]}
     };
 
     let response = StoreDataResponse {
-        msg: sign_data.msg.clone(),
-        signature: _signature.1.clone(),
-        public_key: _signature.0.clone(),
-        hash: hash.clone()
+        msg: tmp.msg,
+        signature: tmp.signature,
+        public_key: tmp.public_key,
+        hash: hash,
     };
 
     Ok(HttpResponse::Ok().json(response))
@@ -96,9 +106,11 @@ async fn signmsg(sign_data: web::Json<SignData>) -> Result<HttpResponse, actix_w
 async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
         let cors = Cors::permissive();
+        let client: IpfsClient = IpfsClient::from_host_and_port(Scheme::HTTP, IPFS_HOST.as_str(), *IPFS_PORT).unwrap();
 
         App::new()
             .wrap(cors)
+            .app_data(client)
             .service(hello)
             .service(signmsg)
     })
